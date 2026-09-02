@@ -1,0 +1,165 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Admin role is stored in users/{uid}.role.
+    // IMPORTANT: users cannot change their own role through the client.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isParticipant(participants) {
+      return isSignedIn() && request.auth.uid in participants;
+    }
+
+    // ------------------------------------------------------------
+    // MEMBER ACCOUNTS
+    // ------------------------------------------------------------
+    match /users/{userId} {
+      // Needed for the Members screen and profile lookups.
+      allow read: if isSignedIn();
+
+      // A user may create only their own account document.
+      allow create: if isSignedIn()
+                    && request.auth.uid == userId
+                    && (!('role' in request.resource.data)
+                        || request.resource.data.role != 'admin');
+
+      // Users may edit their own profile, but can never change role.
+      allow update: if isSignedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.role == resource.data.role;
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------
+    // PUBLIC MEMBERS-ONLY CHAT ROOMS
+    // ------------------------------------------------------------
+    match /rooms/{room}/messages/{messageId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+                    && request.resource.data.uid == request.auth.uid;
+
+      // A member may remove only the media field from their own message.
+      // Admins may update messages.
+      allow update: if isAdmin()
+                    || (
+                      isSignedIn()
+                      && resource.data.uid == request.auth.uid
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['media'])
+                      && request.resource.data.media == null
+                    );
+
+      allow delete: if isAdmin()
+                    || (isSignedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // ------------------------------------------------------------
+    // PRIVATE ONE-TO-ONE CONVERSATIONS
+    // ------------------------------------------------------------
+    // Conversation documents contain exactly two participant UIDs.
+    // Messages live in /directConversations/{conversationId}/messages.
+    match /directConversations/{conversationId} {
+      // Only the two participants can discover/read a conversation.
+      allow read: if isParticipant(resource.data.participants);
+
+      // Either participant can create the conversation. The creator must
+      // be one of the two participants and the conversation must have two IDs.
+      allow create: if isSignedIn()
+                    && request.auth.uid in request.resource.data.participants
+                    && request.resource.data.participants.size() == 2;
+
+      // Participants may update conversation metadata, but never change
+      // who the conversation belongs to.
+      allow update: if isParticipant(resource.data.participants)
+                    && request.resource.data.participants == resource.data.participants;
+
+      // Only an administrator can remove an entire conversation.
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        // Private messages carry the two participant UIDs so queries can be
+        // securely constrained to the signed-in participant.
+        allow read: if isSignedIn()
+                    && request.auth.uid in get(
+                      /databases/$(database)/documents/directConversations/$(conversationId)
+                    ).data.participants;
+
+        allow create: if isSignedIn()
+                      && request.resource.data.uid == request.auth.uid
+                      && request.resource.data.participants.size() == 2
+                      && request.auth.uid in request.resource.data.participants
+                      && request.resource.data.participants == get(/databases/$(database)/documents/directConversations/$(conversationId)).data.participants;
+
+        allow update, delete: if isAdmin()
+                              || (
+                                isSignedIn()
+                                && resource.data.uid == request.auth.uid
+                                && request.auth.uid in resource.data.participants
+                              );
+      }
+    }
+
+    // ------------------------------------------------------------
+    // PUBLISHED RESOURCES / SERMONS
+    // ------------------------------------------------------------
+    match /resources/{resourceId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------
+    // EDITABLE WEBSITE CONTENT / BRANDING
+    // ------------------------------------------------------------
+    // Used for documents such as:
+    //   siteContent/home
+    //   siteContent/pages
+    //   siteContent/branding
+    // Public visitors can read the content; only admins can change it.
+    match /siteContent/{docId} {
+      allow read: if true;
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------
+    // LEADERSHIP
+    // ------------------------------------------------------------
+    match /leadership/{leaderId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------
+    // EXTRA PAGE TABS
+    // ------------------------------------------------------------
+    match /pageTabs/{tabId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------
+    // EVENTS
+    // ------------------------------------------------------------
+    match /events/{eventId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------
+    // DEFAULT DENY
+    // ------------------------------------------------------------
+    // Any future collection that is not explicitly listed above is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
