@@ -420,25 +420,48 @@ async function openDirectChat(uid,name){
  $('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendDirectMessage()}};
  if(unsubscribeDM)unsubscribeDM();
 
+ const cq=doc(db,'directConversations',id);
+ let conversationReady=false;
  try{
-   // Create or update in one operation. Reading a nonexistent conversation
-   // first can trigger a permission-denied response under privacy rules.
-   const cq=doc(db,'directConversations',id);
+   // Try to create/update the conversation. Existing conversations that were
+   // created by an older version may reject metadata updates; that should NOT
+   // prevent the actual chat from opening.
    await setDoc(cq,{
      participants:[currentUser.uid,uid],
      participantNames:{
-       [currentUser.uid]:currentUser.displayName||currentUser.email.split('@')[0],
+       [currentUser.uid]:currentUser.displayName||currentUser.email?.split('@')[0]||'Ambassador',
        [uid]:name
      },
      updatedAt:serverTimestamp(),
      createdAt:serverTimestamp()
    },{merge:true});
- }catch(e){
-   console.error('Private conversation setup error:',e);
-   const box=$('messages');
-   if(box)box.innerHTML='<div class="empty">Could not open this private conversation. Please refresh and try again.</div>';
-   return;
+   conversationReady=true;
+ }catch(setupError){
+   console.warn('Private conversation metadata update was rejected; checking existing conversation.',setupError);
+   try{
+     // If the conversation already exists and the signed-in user is a
+     // participant, Firestore allows this read. We can safely open the chat
+     // even if an old/malformed metadata update cannot be written.
+     const existing=await getDoc(cq);
+     if(existing.exists()){
+       const data=existing.data()||{};
+       const participants=Array.isArray(data.participants)?data.participants:[];
+       if(participants.includes(currentUser.uid)&&participants.includes(uid)){
+         conversationReady=true;
+       }else{
+         throw new Error('This private conversation does not contain both participants.');
+       }
+     }else{
+       throw setupError;
+     }
+   }catch(fallbackError){
+     console.error('Private conversation setup error:',fallbackError);
+     const box=$('messages');
+     if(box)box.innerHTML='<div class="empty">Could not open this private conversation.<br><small style="opacity:.7">The conversation could not be verified. Please try again after Firebase rules finish publishing.</small></div>';
+     return;
+   }
  }
+ if(!conversationReady)return;
 
  // No server-side orderBy: old messages without timestamps remain visible.
  const q=query(collection(db,'directConversations',id,'messages'),limit(150));
