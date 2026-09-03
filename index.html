@@ -309,6 +309,27 @@ function renderCommunity(){const out=$('signedOut'),app=$('communityApp');if(cur
 async function renderProfile(){const a=$('profileSignedOut'),b=$('profileApp');if(currentUser){a.classList.add('hidden');b.classList.remove('hidden');const n=currentUser.displayName||currentUser.email.split('@')[0];$('profileName').textContent=n;$('profileEmail').textContent=currentUser.email;$('avatar').textContent=n[0].toUpperCase();if(db){const q=query(collection(db,'rooms','general','messages'));onSnapshot(q,s=>{let c=0;s.forEach(d=>{if(d.data().uid===currentUser.uid)c++});$('postCount').textContent=c})}}else{a.classList.remove('hidden');b.classList.add('hidden')}}
 
 document.querySelectorAll('[data-room]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-room]').forEach(x=>x.classList.remove('active'));b.classList.add('active');currentRoom=b.dataset.room;clearUnread(currentRoom);renderRoom(currentRoom)});
+function drawMessage(box,m,privateConversationId){
+  const mine=(m.uid||m.authorUid||'')===currentUser?.uid;
+  const name=escapeText(m.name||'Ambassador');
+  const text=escapeText(m.text||'');
+  const d=m.createdAt?.toDate?.();
+  const time=d&&!Number.isNaN(d.getTime())?d.toLocaleString():'';
+  let mediaHtml='';
+  if(m.media&&m.media.url){
+    const url=escapeText(m.media.url), type=String(m.media.type||'').toLowerCase(), label=escapeText(m.media.name||'Shared media');
+    if(type.startsWith('image/')) mediaHtml=`<div class="media"><img src="${url}" alt="${label}" loading="lazy"></div>`;
+    else if(type.startsWith('video/')) mediaHtml=`<div class="media"><video src="${url}" controls preload="metadata"></video></div>`;
+    else if(type.startsWith('audio/')) mediaHtml=`<div class="media"><audio src="${url}" controls preload="metadata"></audio></div>`;
+    else mediaHtml=`<div class="media"><a class="detailBtn" href="${url}" target="_blank" rel="noopener noreferrer">Open ${label}</a></div>`;
+  }
+  const wrap=document.createElement('div'); wrap.className='msg'+(mine?' mine':'');
+  wrap.innerHTML=`<div class="msgmeta"><b>${name}</b>${time?' • '+escapeText(time):''}</div><div class="bubble">${text||(!mediaHtml?'Shared media':'')}${mediaHtml}</div>${mine?'<div class="msgActions"><button type="button" class="deleteMessageBtn">Delete</button></div>':''}`;
+  const del=wrap.querySelector('.deleteMessageBtn');
+  if(del) del.onclick=async()=>{if(!confirm('Delete this message?'))return;try{const ref=privateConversationId?doc(db,'directConversations',privateConversationId,'messages',m.id):doc(db,'rooms',currentRoom,'messages',m.id);await deleteDoc(ref)}catch(e){console.error(e);alert('Could not delete this message. '+(e.message||''))}};
+  box.appendChild(wrap);
+}
+
 function renderRoom(room){
  if(!currentUser||!db)return;
  const p=$('roomPanel');
@@ -328,10 +349,10 @@ function renderRoom(room){
  unsubscribeChat=onSnapshot(q,snap=>{
    const box=$('messages'); if(!box)return;
    const messages=[]; snap.forEach(d=>messages.push({...d.data(),id:d.id}));
-   messages.sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
+   messages.sort((a,b)=>{const at=a.createdAt?.toMillis?.()||0,bt=b.createdAt?.toMillis?.()||0;return at-bt||String(a.id).localeCompare(String(b.id))});
    if(!messages.length){box.innerHTML='<div class="empty">No messages yet. Start the conversation.</div>';return}
    const wasNearBottom=box.scrollHeight-box.scrollTop-box.clientHeight<120;
-   box.innerHTML=''; messages.forEach(m=>drawMessage(box,m));
+   box.innerHTML=''; messages.forEach(m=>{try{drawMessage(box,m)}catch(err){console.error('Message render error:',err)}});
    if(wasNearBottom)box.scrollTop=box.scrollHeight;
    handleIncomingMessage(messages[messages.length-1],room);
  },e=>{
@@ -406,9 +427,9 @@ async function openDirectChat(uid,name){
  unsubscribeDM=onSnapshot(q,snap=>{
    const box=$('messages'); if(!box)return;
    const messages=[]; snap.forEach(d=>messages.push({...d.data(),id:d.id}));
-   messages.sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
+   messages.sort((a,b)=>{const at=a.createdAt?.toMillis?.()||0,bt=b.createdAt?.toMillis?.()||0;return at-bt||String(a.id).localeCompare(String(b.id))});
    if(!messages.length){box.innerHTML='<div class="empty">No private messages yet. Say hello.</div>';return}
-   box.innerHTML=''; messages.forEach(m=>drawMessage(box,m,currentDM.id)); box.scrollTop=box.scrollHeight;
+   box.innerHTML=''; messages.forEach(m=>{try{drawMessage(box,m,currentDM.id)}catch(err){console.error('Private message render error:',err)}}); box.scrollTop=box.scrollHeight;
  },e=>{
    console.error('Private chat listener error:',e);
    const box=$('messages');
@@ -416,49 +437,29 @@ async function openDirectChat(uid,name){
  });
 }
 async function sendDirectMessage(){
- if(!currentUser||!currentDM)return;
- const input=$('messageInput'), fileInput=$('mediaInput');
- const text=input.value.trim(),file=fileInput.files[0];
+ if(!currentUser||!currentDM||!db)return;
+ const input=$('messageInput'),fileInput=$('mediaInput');
+ const text=input.value.trim(),file=fileInput.files?.[0];
  if(!text&&!file)return;
  let media=null;
  try{
-   // Confirm the parent conversation still belongs to the two participants.
-   const conv=await getDoc(doc(db,'directConversations',currentDM.id));
+   const convRef=doc(db,'directConversations',currentDM.id);
+   const conv=await getDoc(convRef);
    if(!conv.exists())throw new Error('Private conversation does not exist. Reopen it from Members.');
-   const participants=conv.data().participants||[];
-   if(participants.length!==2||!participants.includes(currentUser.uid)||!participants.includes(currentDM.uid)){
-     throw new Error('You are not a participant in this private conversation.');
-   }
+   const participants=Array.isArray(conv.data().participants)?conv.data().participants:[];
+   if(participants.length!==2||!participants.includes(currentUser.uid)||!participants.includes(currentDM.uid))throw new Error('You are not a participant in this private conversation.');
    if(file){
-     const max=50*1024*1024;
-     if(file.size>max){alert('File is too large. Please choose a file under 50 MB.');return}
-     const form=new FormData();form.append('file',file);form.append('upload_preset',cloudinaryConfig.uploadPreset);
-     $('uploadProgress').style.width='10%';
-     const res=await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/auto/upload`,{method:'POST',body:form});
-     $('uploadProgress').style.width='75%';
-     const data=await res.json();
+     const max=50*1024*1024;if(file.size>max){alert('File is too large. Please choose a file under 50 MB.');return}
+     const form=new FormData();form.append('file',file);form.append('upload_preset',cloudinaryConfig.uploadPreset);$('uploadProgress').style.width='10%';
+     const res=await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/auto/upload`,{method:'POST',body:form});$('uploadProgress').style.width='75%';const data=await res.json();
      if(!res.ok||!data.secure_url)throw new Error(data.error?.message||'Cloudinary upload failed');
-     media={name:file.name,type:file.type,url:data.secure_url};
-     $('uploadProgress').style.width='100%';
+     media={name:file.name,type:file.type,url:data.secure_url};$('uploadProgress').style.width='100%';
    }
-   await addDoc(collection(db,'directConversations',currentDM.id,'messages'),{
-     uid:currentUser.uid,
-     participants:[currentUser.uid,currentDM.uid],
-     name:currentUser.displayName||currentUser.email.split('@')[0],
-     text,media,createdAt:serverTimestamp()
-   });
-   await setDoc(doc(db,'directConversations',currentDM.id),{
-     updatedAt:serverTimestamp(),lastMessage:text||'Shared media'
-   },{merge:true});
-   input.value='';fileInput.value='';$('preview').textContent='';
-   setTimeout(()=>{$('uploadProgress').style.width='0'},400);
- }catch(e){
-   console.error('Private message send error:',e);
-   alert(`Could not send the private message. ${e.message||'Please check your connection and Firestore rules.'}`);
- }
+   await addDoc(collection(db,'directConversations',currentDM.id,'messages'),{uid:currentUser.uid,participants:[currentUser.uid,currentDM.uid],name:currentUser.displayName||currentUser.email?.split('@')[0]||'Ambassador',text,media,createdAt:serverTimestamp()});
+   await setDoc(convRef,{updatedAt:serverTimestamp(),lastMessage:text||'Shared media'},{merge:true});
+   input.value='';fileInput.value='';$('preview').textContent='';setTimeout(()=>{$('uploadProgress').style.width='0'},400);
+ }catch(e){console.error('Private message send error:',e);alert(`Could not send the private message. ${e.code||e.message||'Please check Firebase rules and your connection.'}`);$('uploadProgress').style.width='0'}
 }
-
-
 
 let unsubscribePageTabs=null,currentTabPage=null;
 
