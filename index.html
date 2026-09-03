@@ -104,6 +104,23 @@ body{min-height:100vh}
 <style>
 .signedIdentity{display:flex;align-items:center;gap:10px}.signedIdentity small{display:block;color:var(--muted);font-size:11px;margin-top:2px}.statusDot{width:9px;height:9px;border-radius:50%;display:inline-block;background:#aaa;box-shadow:0 0 0 3px rgba(0,0,0,.04)}.statusDot.online{background:#2e9b5b}.statusDot.offline{background:#aaa}.userActions{display:flex;align-items:center;gap:8px}.notifyBtn,.smallIconBtn{position:relative;border:1px solid var(--line);background:white;border-radius:10px;padding:9px 11px;cursor:pointer}.badge{position:absolute;right:-5px;top:-5px;min-width:17px;height:17px;border-radius:99px;background:var(--red);color:white;font-size:10px;display:flex;align-items:center;justify-content:center;padding:0 4px;font-weight:800}.chatTopActions{display:flex;align-items:center;gap:8px}.typingStatus{font-size:11px;color:var(--muted);min-height:15px;margin-top:2px}.memberPresence{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;margin-top:4px}.memberPresence .statusDot{width:7px;height:7px}.onlinePill{white-space:nowrap}.unreadMark{float:right;background:var(--green);color:#fff;border-radius:99px;padding:2px 7px;font-size:10px}.dmItem .presenceLine{font-size:11px;margin-top:3px}.notificationPanel{margin-bottom:12px;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:#fffdf9;font-size:12px}.notificationPanel button{margin-top:7px}.chatStatusBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 12px;background:var(--soft);font-size:11px;color:var(--muted)}
 @media(max-width:760px){.userbar{align-items:flex-start}.chatTop{gap:8px}.chatTopActions{flex-shrink:0}.onlinePill{font-size:10px}}
+
+/* V26 MOBILE NAVIGATION FIX */
+@media(max-width:900px){
+  #siteHeader{z-index:1000}
+  .nav{position:relative;min-height:72px}
+  .menu{display:grid!important;place-items:center;width:44px;height:44px;flex:0 0 44px;position:relative;z-index:1002}
+  .navlinks{display:none!important;position:absolute;top:72px;left:0;right:0;width:100%;max-height:calc(100vh - 80px);overflow-y:auto;overscroll-behavior:contain;z-index:1001}
+  .navlinks.mobile-open{display:flex!important}
+  .navlinks button{min-height:46px}
+}
+@media(max-width:430px){
+  .container{width:min(100% - 20px,1160px);padding-left:0;padding-right:0}
+  .nav{gap:8px}
+  .brand{gap:8px}
+  .brand small{max-width:125px}
+  .authbtn{padding:9px 10px;font-size:12px}
+}
 </style><script>
 (function(){
   function el(id){return document.getElementById(id)}
@@ -133,11 +150,16 @@ body{min-height:100vh}
   });
   document.addEventListener('DOMContentLoaded',function(){
     var menu=el('menu'),nav=el('navlinks');
-    if(menu&&nav) menu.addEventListener('click',function(){
-      var open=nav.classList.toggle('mobile-open');
+    if(menu&&nav) menu.addEventListener('click',function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      var open=!nav.classList.contains('mobile-open');
+      if(open) nav.classList.add('mobile-open'); else nav.classList.remove('mobile-open');
       menu.setAttribute('aria-expanded',String(open));
       menu.setAttribute('aria-label',open?'Close navigation':'Open navigation');
+      menu.textContent=open?'✕':'☰';
     });
+    window.addEventListener('resize',function(){if(window.innerWidth>900) closeMobileMenu()});
     document.addEventListener('keydown',function(e){if(e.key==='Escape') closeMobileMenu();});
     document.addEventListener('click',function(e){
       if(!nav||!menu||!nav.classList.contains('mobile-open')) return;
@@ -154,14 +176,13 @@ body{min-height:100vh}
   const $v=id=>document.getElementById(id);
   const safe=(fn)=>{try{fn()}catch(e){console.warn('V23 enhancement:',e)}};
   safe(()=>{
-    // Accessible navigation state + mobile menu behavior.
+    // Navigation state. Mobile menu is controlled by the dedicated fallback below.
     const nav=$v('navlinks'), menu=$v('menu');
     if(nav&&menu){
-      const close=()=>{nav.classList.remove('mobile-open');menu.setAttribute('aria-expanded','false');menu.setAttribute('aria-label','Open navigation')};
-      menu.addEventListener('click',()=>{const open=!nav.classList.contains('mobile-open');nav.classList.toggle('mobile-open',open);menu.setAttribute('aria-expanded',String(open));menu.setAttribute('aria-label',open?'Close navigation':'Open navigation')});
-      document.addEventListener('click',e=>{if(window.innerWidth<=900&&!nav.contains(e.target)&&!menu.contains(e.target))close()});
-      document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
-      nav.querySelectorAll('button[data-page]').forEach(b=>b.addEventListener('click',()=>{nav.querySelectorAll('button[data-page]').forEach(x=>x.removeAttribute('aria-current'));b.setAttribute('aria-current','page');if(window.innerWidth<=900)close()}));
+      nav.querySelectorAll('button[data-page]').forEach(b=>b.addEventListener('click',()=>{
+        nav.querySelectorAll('button[data-page]').forEach(x=>x.removeAttribute('aria-current'));
+        b.setAttribute('aria-current','page');
+      }));
     }
     // Browser history for page navigation, without breaking existing showPage().
     const originalShow=window.showPage;
@@ -272,13 +293,14 @@ renderLessons();renderModules();renderStaticSermons();
 const tabPageTargets={lessons:'lessonsTabs',modules:'modulesTabs',sermons:'sermonsTabs',leadership:'leadershipTabs'};
 
 function displayPage(id){if(!$(id))id='home';document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'));$(id).classList.remove('hidden');document.querySelectorAll('[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===id));window.scrollTo({top:0,behavior:'smooth'});if(id==='community')renderCommunity();if(id==='profile')renderProfile();if(id==='sermons')loadResources();if(id==='leadership')loadLeadership();if(id==='events')loadEvents();if(tabPageTargets[id])renderPageTabs(id)}
-window.showPage=(id,fromHistory=false)=>{if(!$(id))id='home';if(!fromHistory){const hash='#'+id;if(location.hash!==hash)history.pushState({page:id},'',hash)}displayPage(id)};
+window.closeMobileMenu=()=>{const nav=$('navlinks'),menu=$('menu');if(nav)nav.classList.remove('mobile-open');if(menu){menu.setAttribute('aria-expanded','false');menu.setAttribute('aria-label','Open navigation');menu.textContent='☰'}};
+window.showPage=(id,fromHistory=false)=>{if(!$(id))id='home';window.closeMobileMenu();if(!fromHistory){const hash='#'+id;if(location.hash!==hash)history.pushState({page:id},'',hash)}displayPage(id)};
 window.addEventListener('popstate',()=>displayPage(location.hash.replace('#','')||'home'));
 window.addEventListener('hashchange',()=>displayPage(location.hash.replace('#','')||'home'));
 // Restore the current page when opening, refreshing, or using a bookmarked URL.
 displayPage(location.hash.replace('#','')||'home');
 window.openCommunity=()=>currentUser?showPage('community'):showPage('auth');window.requireAuth=()=>currentUser?showPage('community'):showPage('auth');
-document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();showPage(b.dataset.page)}));$('authBtn').addEventListener('click',()=>currentUser?showPage('community'):showPage('auth'));// Mobile menu is handled by the non-module navigation fallback above.
+document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',e=>{e.preventDefault();showPage(b.dataset.page)}));$('authBtn').addEventListener('click',()=>currentUser?showPage('community'):showPage('auth'));
 window.toggleAuthMode=()=>{signup=!signup;$('authTitle').textContent=signup?'Create your account':'Welcome back';$('authSub').textContent=signup?'Join the Ambassadors Club community.':'Sign in to your Ambassadors account.';$('nameField').classList.toggle('hidden',!signup);$('authAction').textContent=signup?'Create account':'Sign in';$('switchText').textContent=signup?'Already a member?':'New here?';$('switchBtn').textContent=signup?'Sign in':'Create an account'};
 window.handleAuth=async()=>{if(!configured){showError('Configure Firebase in index.html first. See README.md.');return}const email=$('email').value.trim(),password=$('password').value,name=$('displayName').value.trim();hideError();try{if(signup){const c=await createUserWithEmailAndPassword(auth,email,password);if(name)await updateProfile(c.user,{displayName:name});await setDoc(doc(db,'users',c.user.uid),{uid:c.user.uid,name:name||email.split('@')[0],email,createdAt:serverTimestamp()},{merge:true})}else await signInWithEmailAndPassword(auth,email,password);showPage('community')}catch(e){showError(friendly(e.code))}};
 function showError(t){$('authError').textContent=t;$('authError').classList.remove('hidden')}function hideError(){$('authError').classList.add('hidden')}function friendly(c){return({'auth/email-already-in-use':'That email is already registered.','auth/invalid-credential':'Email or password is incorrect.','auth/weak-password':'Use a stronger password.','auth/invalid-email':'Enter a valid email address.','auth/too-many-requests':'Too many attempts. Try again later.','auth/network-request-failed':'Network error. Check your connection.'}[c])||'Something went wrong. Please try again.'}
@@ -288,16 +310,35 @@ async function renderProfile(){const a=$('profileSignedOut'),b=$('profileApp');i
 
 document.querySelectorAll('[data-room]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-room]').forEach(x=>x.classList.remove('active'));b.classList.add('active');currentRoom=b.dataset.room;clearUnread(currentRoom);renderRoom(currentRoom)});
 function renderRoom(room){
- if(!currentUser)return; const p=$('roomPanel'); if(room==='direct'){renderMembers(p);return}
+ if(!currentUser||!db)return;
+ const p=$('roomPanel');
+ if(room==='direct'){renderMembers(p);return}
  p.innerHTML=`<div class="head"><div><h2 style="margin:0">${roomTitle(room)}</h2><p>Members-only conversation • Be kind, respectful and Christ-centred.</p></div></div><div class="chat"><div class="chatTop"><div><b>Ambassadors Club chatroom</b><div id="typingStatus" class="typingStatus"></div></div><div class="chatTopActions"><span id="onlineCount" class="onlinePill">● 0 online</span><button class="smallIconBtn" id="chatNotifyBtn" type="button" title="Notification settings">🔔</button></div></div><div id="notificationPanel" class="notificationPanel hidden"></div><div class="chatStatusBar"><span>✓ Live updates</span><span>🔔 Notifications</span><span>⌨️ Typing indicators</span></div><div class="messages" id="messages"><div class="empty">Loading conversation…</div></div><div class="progress"><i id="uploadProgress"></i></div><div class="preview" id="preview"></div><div class="composer"><label class="attach" title="Share image, video or audio">📎<input id="mediaInput" type="file" accept="image/*,video/*,audio/*" hidden></label><input id="messageInput" type="text" placeholder="Write a message…"><button class="send" id="sendBtn">Send</button></div></div>`;
  $('mediaInput').onchange=e=>{const f=e.target.files[0];$('preview').textContent=f?`Selected: ${f.name}`:''};
- $('sendBtn').onclick=sendMessage; $('messageInput').oninput=handleTyping; $('messageInput').onfocus=()=>setTyping(true); $('messageInput').onblur=()=>setTyping(false);
+ $('sendBtn').onclick=sendMessage;
+ $('messageInput').oninput=handleTyping;
+ $('messageInput').onfocus=()=>setTyping(true);
+ $('messageInput').onblur=()=>setTyping(false);
  $('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage()}};
  $('chatNotifyBtn').onclick=toggleNotificationPanel;
  updateOnlineCount(); setupTypingListener();
  if(unsubscribeChat)unsubscribeChat();
- const q=query(collection(db,'rooms',room,'messages'),orderBy('createdAt','asc'),limit(150));
- unsubscribeChat=onSnapshot(q,s=>{const box=$('messages');if(!box)return;if(s.empty){box.innerHTML='<div class="empty">No messages yet. Start the conversation.</div>';return}const wasNearBottom=box.scrollHeight-box.scrollTop-box.clientHeight<100;box.innerHTML='';let newest=null;s.forEach(d=>{const m={...d.data(),id:d.id};drawMessage(box,m);if(!newest||((m.createdAt?.toMillis?.()||0)>(newest.createdAt?.toMillis?.()||0)))newest=m});if(wasNearBottom)box.scrollTop=box.scrollHeight;handleIncomingMessage(newest,room)});
+ // Do not require every historical message to have createdAt. Sort safely on the client.
+ const q=query(collection(db,'rooms',room,'messages'),limit(150));
+ unsubscribeChat=onSnapshot(q,snap=>{
+   const box=$('messages'); if(!box)return;
+   const messages=[]; snap.forEach(d=>messages.push({...d.data(),id:d.id}));
+   messages.sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
+   if(!messages.length){box.innerHTML='<div class="empty">No messages yet. Start the conversation.</div>';return}
+   const wasNearBottom=box.scrollHeight-box.scrollTop-box.clientHeight<120;
+   box.innerHTML=''; messages.forEach(m=>drawMessage(box,m));
+   if(wasNearBottom)box.scrollTop=box.scrollHeight;
+   handleIncomingMessage(messages[messages.length-1],room);
+ },e=>{
+   console.error('Public chat listener error:',e);
+   const box=$('messages');
+   if(box)box.innerHTML='<div class="empty">Chat could not load. Please refresh. If this continues, check Firestore permissions for rooms/messages.</div>';
+ });
 }
 function handleIncomingMessage(m,room){if(!m||m.uid===currentUser?.uid)return;const key=`amb_last_seen_${currentUser.uid}_${room}`;const seen=Number(localStorage.getItem(key)||0),ts=m.createdAt?.toMillis?.()||Date.now();if(ts<=seen)return;if(location.hash==='#community'&&currentRoom===room){localStorage.setItem(key,String(ts));return}markUnread(room);notifyBrowser(m.name||'Ambassadors Club',m.text||'Shared media');}
 function markUnread(room){const btn=document.querySelector(`[data-room="${room}"]`);if(!btn)return;let b=btn.querySelector('.unreadMark');if(!b){b=document.createElement('span');b.className='unreadMark';b.textContent='New';btn.appendChild(b)}updateGlobalUnread();}
@@ -321,54 +362,101 @@ async function renderMembers(p){p.innerHTML='<div class="head"><div><h2 style="m
 
 function conversationId(a,b){return[a,b].sort().join('_')}
 async function openDirectChat(uid,name){
-  if(!currentUser||!db||uid===currentUser.uid)return;
-  const id=conversationId(currentUser.uid,uid);
-  currentDM={id,uid,name};
-  const p=$('roomPanel');
-  p.innerHTML=`<div class="head"><div><h2 style="margin:0">✉️ ${escapeText(name)}</h2><p>Private conversation between you and ${escapeText(name)}.</p></div><button class="smallbtn" id="backToMembers">← Members</button></div><div class="chat"><div class="chatTop"><div><b>Private chat</b><div id="dmPresenceLabel" class="typingStatus"></div></div><span class="onlinePill">🔒 Private</span></div><div class="messages" id="messages"><div class="empty">Opening private conversation…</div></div><div class="progress"><i id="uploadProgress"></i></div><div class="preview" id="preview"></div><div class="composer"><label class="attach" title="Share image, video or audio">📎<input id="mediaInput" type="file" accept="image/*,video/*,audio/*" hidden></label><input id="messageInput" type="text" placeholder="Write a private message…"><button class="send" id="sendBtn">Send</button></div></div>`;
-  $('backToMembers').onclick=()=>renderMembers($('roomPanel'));
-  $('mediaInput').onchange=e=>{const f=e.target.files[0];$('preview').textContent=f?`Selected: ${f.name}`:''};
-  $('sendBtn').onclick=sendDirectMessage;
-  $('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendDirectMessage()}};
-  if(unsubscribeDM)unsubscribeDM();
+ if(!currentUser||!db||uid===currentUser.uid)return;
+ const id=conversationId(currentUser.uid,uid);
+ currentDM={id,uid,name};
+ const p=$('roomPanel');
+ p.innerHTML=`<div class="head"><div><h2 style="margin:0">✉️ ${escapeText(name)}</h2><p>Private conversation between you and ${escapeText(name)}.</p></div><button class="smallbtn" id="backToMembers">← Members</button></div><div class="chat"><div class="chatTop"><div><b>Private chat</b><div id="dmPresenceLabel" class="typingStatus"></div></div><span class="onlinePill">🔒 Private</span></div><div class="messages" id="messages"><div class="empty">Opening private conversation…</div></div><div class="progress"><i id="uploadProgress"></i></div><div class="preview" id="preview"></div><div class="composer"><label class="attach" title="Share image, video or audio">📎<input id="mediaInput" type="file" accept="image/*,video/*,audio/*" hidden></label><input id="messageInput" type="text" placeholder="Write a private message…"><button class="send" id="sendBtn">Send</button></div></div>`;
+ $('backToMembers').onclick=()=>renderMembers($('roomPanel'));
+ $('mediaInput').onchange=e=>{const f=e.target.files[0];$('preview').textContent=f?`Selected: ${f.name}`:''};
+ $('sendBtn').onclick=sendDirectMessage;
+ $('messageInput').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendDirectMessage()}};
+ if(unsubscribeDM)unsubscribeDM();
 
-  const cq=doc(db,'directConversations',id);
-  try{
-    await setDoc(cq,{participants:[currentUser.uid,uid],participantNames:{[currentUser.uid]:currentUser.displayName||currentUser.email.split('@')[0],[uid]:name},updatedAt:serverTimestamp(),createdAt:serverTimestamp()},{merge:true});
-  }catch(e){
-    console.error('Private conversation setup error:',e);
-    const box=$('messages');
-    if(box)box.innerHTML='<div class="empty">Could not open this private conversation. Please refresh and try again.</div>';
-    return;
-  }
+ try{
+   // Only create the conversation if it does not exist. This avoids an update
+   // being rejected when an older conversation has the participants reversed.
+   const cq=doc(db,'directConversations',id);
+   const existing=await getDoc(cq);
+   if(!existing.exists()){
+     await setDoc(cq,{
+       participants:[currentUser.uid,uid],
+       participantNames:{
+         [currentUser.uid]:currentUser.displayName||currentUser.email.split('@')[0],
+         [uid]:name
+       },
+       updatedAt:serverTimestamp(),
+       createdAt:serverTimestamp()
+     });
+   }else{
+     const participants=existing.data().participants||[];
+     if(!participants.includes(currentUser.uid)||!participants.includes(uid)||participants.length!==2){
+       throw new Error('This private conversation is not valid for these two members.');
+     }
+   }
+ }catch(e){
+   console.error('Private conversation setup error:',e);
+   const box=$('messages');
+   if(box)box.innerHTML='<div class="empty">Could not open this private conversation. Please refresh and try again.</div>';
+   return;
+ }
 
-  // Do not order the Firestore query server-side. Older messages may have
-  // different timestamps, and client-side sorting keeps the private chat
-  // listener simple and reliable.
-  const q=query(collection(db,'directConversations',id,'messages'),limit(150));
-  unsubscribeDM=onSnapshot(q,s=>{
-    const box=$('messages');
-    if(!box)return;
-    const messages=[];
-    s.forEach(d=>messages.push({...d.data(),id:d.id}));
-    messages.sort((a,b)=>{
-      const at=a.createdAt?.toMillis?.()||0;
-      const bt=b.createdAt?.toMillis?.()||0;
-      return at-bt;
-    });
-    if(!messages.length){box.innerHTML='<div class="empty">No private messages yet. Say hello.</div>';return}
-    box.innerHTML='';
-    messages.forEach(m=>drawMessage(box,m,currentDM.id));
-    box.scrollTop=box.scrollHeight;
-  },e=>{
-    console.error('Private chat listener error:',e);
-    const box=$('messages');
-    if(box)box.innerHTML='<div class="empty">Could not load this private chat. Please refresh and try again.</div>';
-  });
+ // No server-side orderBy: old messages without timestamps remain visible.
+ const q=query(collection(db,'directConversations',id,'messages'),limit(150));
+ unsubscribeDM=onSnapshot(q,snap=>{
+   const box=$('messages'); if(!box)return;
+   const messages=[]; snap.forEach(d=>messages.push({...d.data(),id:d.id}));
+   messages.sort((a,b)=>(a.createdAt?.toMillis?.()||0)-(b.createdAt?.toMillis?.()||0));
+   if(!messages.length){box.innerHTML='<div class="empty">No private messages yet. Say hello.</div>';return}
+   box.innerHTML=''; messages.forEach(m=>drawMessage(box,m,currentDM.id)); box.scrollTop=box.scrollHeight;
+ },e=>{
+   console.error('Private chat listener error:',e);
+   const box=$('messages');
+   if(box)box.innerHTML='<div class="empty">Could not load this private chat. Please refresh and try again.</div>';
+ });
 }
-
-
-async function sendDirectMessage(){if(!currentUser||!currentDM)return;const text=$('messageInput').value.trim(),file=$('mediaInput').files[0];if(!text&&!file)return;let media=null;try{if(file){const max=50*1024*1024;if(file.size>max){alert('File is too large. Please choose a file under 50 MB.');return}const form=new FormData();form.append('file',file);form.append('upload_preset',cloudinaryConfig.uploadPreset);$('uploadProgress').style.width='10%';const res=await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/auto/upload`,{method:'POST',body:form});$('uploadProgress').style.width='75%';const data=await res.json();if(!res.ok||!data.secure_url)throw new Error(data.error?.message||'Cloudinary upload failed');media={name:file.name,type:file.type,url:data.secure_url};$('uploadProgress').style.width='100%'}await addDoc(collection(db,'directConversations',currentDM.id,'messages'),{uid:currentUser.uid,participants:[currentUser.uid,currentDM.uid],name:currentUser.displayName||currentUser.email.split('@')[0],text,media,createdAt:serverTimestamp()});await setDoc(doc(db,'directConversations',currentDM.id),{updatedAt:serverTimestamp(),lastMessage:text||'Shared media'}, {merge:true});$('messageInput').value='';$('mediaInput').value='';$('preview').textContent='';setTimeout(()=>$('uploadProgress').style.width='0',400)}catch(e){console.error(e);alert('Could not send the private message. Check your connection and Firestore rules.')}}
+async function sendDirectMessage(){
+ if(!currentUser||!currentDM)return;
+ const input=$('messageInput'), fileInput=$('mediaInput');
+ const text=input.value.trim(),file=fileInput.files[0];
+ if(!text&&!file)return;
+ let media=null;
+ try{
+   // Confirm the parent conversation still belongs to the two participants.
+   const conv=await getDoc(doc(db,'directConversations',currentDM.id));
+   if(!conv.exists())throw new Error('Private conversation does not exist. Reopen it from Members.');
+   const participants=conv.data().participants||[];
+   if(participants.length!==2||!participants.includes(currentUser.uid)||!participants.includes(currentDM.uid)){
+     throw new Error('You are not a participant in this private conversation.');
+   }
+   if(file){
+     const max=50*1024*1024;
+     if(file.size>max){alert('File is too large. Please choose a file under 50 MB.');return}
+     const form=new FormData();form.append('file',file);form.append('upload_preset',cloudinaryConfig.uploadPreset);
+     $('uploadProgress').style.width='10%';
+     const res=await fetch(`https://api.cloudinary.com/v1_1/${cloudinaryConfig.cloudName}/auto/upload`,{method:'POST',body:form});
+     $('uploadProgress').style.width='75%';
+     const data=await res.json();
+     if(!res.ok||!data.secure_url)throw new Error(data.error?.message||'Cloudinary upload failed');
+     media={name:file.name,type:file.type,url:data.secure_url};
+     $('uploadProgress').style.width='100%';
+   }
+   await addDoc(collection(db,'directConversations',currentDM.id,'messages'),{
+     uid:currentUser.uid,
+     participants:[currentUser.uid,currentDM.uid],
+     name:currentUser.displayName||currentUser.email.split('@')[0],
+     text,media,createdAt:serverTimestamp()
+   });
+   await setDoc(doc(db,'directConversations',currentDM.id),{
+     updatedAt:serverTimestamp(),lastMessage:text||'Shared media'
+   },{merge:true});
+   input.value='';fileInput.value='';$('preview').textContent='';
+   setTimeout(()=>{$('uploadProgress').style.width='0'},400);
+ }catch(e){
+   console.error('Private message send error:',e);
+   alert(`Could not send the private message. ${e.message||'Please check your connection and Firestore rules.'}`);
+ }
+}
 
 
 
